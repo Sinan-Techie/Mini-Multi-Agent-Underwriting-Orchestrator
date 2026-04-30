@@ -26,29 +26,43 @@ async def handle_turn(
     state["last_user_msg"] = user_text
 
     with NodeTimer(trace_id=trace_id, session_id=state["session_id"], node=node):
-        await send({"type": "node", "name": node})
+        # await send({"type": "node", "name": node})
         try:
                 
             # Routing
             if node == "eligibility_agent":
+                await send({
+                        "type": "node",
+                        "name": "eligibility_agent",
+                    })
                 state = await eligibility.handle(
                     user_text=user_text,
                     state=state,
                     user=user,
                     send=send,
+                    trace_id=trace_id,
                 )
 
 
             elif node == "health_screening_agent":
+                await send({
+                        "type": "node",
+                        "name": "health_screening_agent",
+                    })
                 state = await screening.handle(
                     user_text=user_text,
                     state=state,
                     user=user,
                     send=send,
+                    trace_id=trace_id,
                 )
 
 
             elif node == "quote_agent":
+                await send({
+                        "type": "node",
+                        "name": "quote_agent",
+                    })
                 state = await quote.handle(
                     user_text=user_text,
                     state=state,
