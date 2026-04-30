@@ -5,10 +5,11 @@ maintains session state.
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-
+from typing import Callable, Awaitable
 from .auth import verify_token, AuthError, AuthUser
 from .state import load_state, new_state, save_state, SessionState
 from .router import handle_turn
+from .agents.quote import handle
 from observability import new_trace_id, log
 
 app = FastAPI(title="Underwriting Orchestrator")
@@ -26,7 +27,7 @@ async def ws_send(websocket: WebSocket, event: dict) -> None:
     """Send a JSON event to the client."""
     await websocket.send_json(event)
 
-async def _send_resume_prompt(websocket: WebSocket, state: SessionState) -> None:
+async def _send_resume_prompt(websocket: WebSocket, state: SessionState, user: AuthUser, send: Callable[[dict], Awaitable[None]], trace_id: str) -> SessionState:
     """After a resume, re-send the question the user was last asked."""
     node = state["current_node"]
 
@@ -49,15 +50,16 @@ async def _send_resume_prompt(websocket: WebSocket, state: SessionState) -> None
             await ws_send(websocket, {"type": "done"})
 
     elif node == "quote_agent":
-        print("RESUME PROMPT: quote_agent")
-        if state["quote"]:
-            print("RESUME PROMPT: quote_agent - sending prompt")
-            await ws_send(websocket, {"type": "node", "name": node})
-            await ws_send(websocket, {
-                "type": "stream",
-                "text": "Fetching your quote now — please wait...\n",
-            })
-            await ws_send(websocket, {"type": "done"})
+        await ws_send(websocket, {"type": "node", "name": node})
+        state = await handle(
+            state=state,
+            user=user,
+            send=send,
+            trace_id=trace_id,
+        )
+        await ws_send(websocket, {"type": "done"})
+
+    return state
 
 async def ws_auth_handshake(websocket: WebSocket) -> AuthUser:
     """
@@ -122,14 +124,17 @@ async def ws_chat(websocket: WebSocket):
 
     if state is None:
         state = new_state(user.session_id, user.role)
-    
+
+    async def send(event: dict, _ws=websocket):
+        await _ws.send_json(event)
+
     # On reconnect
     await ws_send(websocket, {
         "type": "node",
         "name": state["current_node"],
     })
 
-    if state["current_node"] == "eligibility_agent" and state["last_user_msg"] =="" :
+    if state["current_node"] == "eligibility_agent" and state["last_user_msg"] == "":
         await ws_send(websocket, {
             "type": "stream",
             "text": "Welcome! Please provide your age and region (UAE, KSA, IND).\nExample: 30 IND\n",
@@ -144,9 +149,11 @@ async def ws_chat(websocket: WebSocket):
         await ws_send(websocket, {"type": "done"})
 
         # Re-prompt the pending question so user knows what to answer
-        await _send_resume_prompt(websocket, state)
+        resume_trace_id = new_trace_id()
+        state = await _send_resume_prompt(websocket, state, user, send, resume_trace_id)
+        save_state(user.session_id, state)
 
-    # Message loop 
+    # Message loop
     while True:
         try:
             raw = await websocket.receive_json()
@@ -169,9 +176,6 @@ async def ws_chat(websocket: WebSocket):
 
         user_text = raw["text"].strip()
         trace_id = new_trace_id()
-
-        async def send(event: dict, _ws=websocket):
-            await _ws.send_json(event)
 
         try:
             state = await handle_turn(

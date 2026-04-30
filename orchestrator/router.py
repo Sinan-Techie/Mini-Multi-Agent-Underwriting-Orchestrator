@@ -64,7 +64,6 @@ async def handle_turn(
                         "name": "quote_agent",
                     })
                 state = await quote.handle(
-                    user_text=user_text,
                     state=state,
                     user=user,
                     send=send,
