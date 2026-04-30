@@ -6,7 +6,8 @@ Stub implementation — echoes user message, stays on current node.
 from typing import Callable, Awaitable
 from .state import SessionState
 from .auth import AuthUser
-from observability import log, NodeTimer
+from observability import NodeTimer
+from .agents import eligibility
 
 
 async def handle_turn(
@@ -24,26 +25,20 @@ async def handle_turn(
     node = state["current_node"]
     state["last_user_msg"] = user_text
 
-    # This will be replaced with real agent dispatch.
     with NodeTimer(trace_id=trace_id, session_id=state["session_id"], node=node):
         await send({"type": "node", "name": node})
 
-        # Stub response — chunked to demonstrate streaming
-        stub_reply = (
-            f"[STUB] You said: '{user_text}'\n"
-            f"Current node: {node}\n"
-            f"Role: {user.role}\n"
-            f"(Agents will be wired in Phase 4)"
-        )
-        for chunk in _chunk(stub_reply, size=30):
-            await send({"type": "stream", "text": chunk})
+        if node == "eligibility_agent":
+            state = await eligibility.handle(
+                user_text=user_text,
+                state=state,
+                user=user,
+                send=send,
+            )
+        else:
+            stub_reply = f"[STUB] {node} not implemented yet.\n"
+            await send({"type": "stream", "text": stub_reply})
 
         await send({"type": "done"})
 
     return state
-
-
-def _chunk(text: str, size: int = 30):
-    """Split text into chunks of `size` characters for fake streaming."""
-    for i in range(0, len(text), size):
-        yield text[i:i + size]
