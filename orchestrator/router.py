@@ -7,7 +7,7 @@ from typing import Callable, Awaitable
 from .state import SessionState
 from .auth import AuthUser
 from observability import NodeTimer
-from .agents import eligibility
+from .agents import eligibility,screening
 
 
 async def handle_turn(
@@ -35,6 +35,13 @@ async def handle_turn(
                 user=user,
                 send=send,
             )
+        elif node == "health_screening_agent":
+                state = await screening.handle(
+                    user_text=user_text,
+                    state=state,
+                    user=user,
+                    send=send,
+                )
         else:
             stub_reply = f"[STUB] {node} not implemented yet.\n"
             await send({"type": "stream", "text": stub_reply})
