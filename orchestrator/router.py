@@ -1,12 +1,11 @@
 """Supervisor router — routes each user turn to the correct agent.
 
-Phase 1: Stub implementation — echoes user message, stays on current node.
-Phase 4: Real agent dispatch wired in.
+Stub implementation — echoes user message, stays on current node.
 """
 
 from typing import Callable, Awaitable
-from state import SessionState
-from auth import AuthUser
+from .state import SessionState
+from .auth import AuthUser
 from observability import log, NodeTimer
 
 
@@ -25,8 +24,7 @@ async def handle_turn(
     node = state["current_node"]
     state["last_user_msg"] = user_text
 
-    # ── Phase 1 stub: simple echo ──────────────────────────────────────
-    # This will be replaced in Phase 4 with real agent dispatch.
+    # This will be replaced with real agent dispatch.
     with NodeTimer(trace_id=trace_id, session_id=state["session_id"], node=node):
         await send({"type": "node", "name": node})
 
