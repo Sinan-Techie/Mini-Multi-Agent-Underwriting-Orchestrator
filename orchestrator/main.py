@@ -6,11 +6,10 @@ maintains session state.
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from auth import verify_token, AuthError, AuthUser
+from .auth import verify_token, AuthError, AuthUser
+from .state import load_state, new_state, save_state
+from .router import handle_turn
 from observability import new_trace_id, log
-
-from state import load_state, new_state, save_state
-from router import handle_turn
 
 app = FastAPI(title="Underwriting Orchestrator")
 
