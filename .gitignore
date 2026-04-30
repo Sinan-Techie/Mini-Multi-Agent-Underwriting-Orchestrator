@@ -10,3 +10,4 @@ traces.log
 .DS_Store
 .idea/
 .vscode/
+traces/
