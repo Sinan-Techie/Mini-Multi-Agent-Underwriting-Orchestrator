@@ -7,8 +7,8 @@ from typing import Callable, Awaitable
 from .state import SessionState
 from .auth import AuthUser
 from observability import NodeTimer
-from .agents import eligibility,screening
-
+from .agents import eligibility,screening, quote
+from .tool_client import ToolForbiddenError, ToolUnavailableError
 
 async def handle_turn(
     *,
@@ -27,24 +27,58 @@ async def handle_turn(
 
     with NodeTimer(trace_id=trace_id, session_id=state["session_id"], node=node):
         await send({"type": "node", "name": node})
+        try:
+                
+            # Routing
+            if node == "eligibility_agent":
+                state = await eligibility.handle(
+                    user_text=user_text,
+                    state=state,
+                    user=user,
+                    send=send,
+                )
 
-        if node == "eligibility_agent":
-            state = await eligibility.handle(
-                user_text=user_text,
-                state=state,
-                user=user,
-                send=send,
-            )
-        elif node == "health_screening_agent":
+
+            elif node == "health_screening_agent":
                 state = await screening.handle(
                     user_text=user_text,
                     state=state,
                     user=user,
                     send=send,
                 )
-        else:
-            stub_reply = f"[STUB] {node} not implemented yet.\n"
-            await send({"type": "stream", "text": stub_reply})
+
+
+            elif node == "quote_agent":
+                state = await quote.handle(
+                    user_text=user_text,
+                    state=state,
+                    user=user,
+                    send=send,
+                    trace_id=trace_id,
+                )
+            else:
+
+                await send({
+                    "type": "stream",
+                    "text": f"[STUB] {node} not implemented yet.\n",
+                })
+        except ToolForbiddenError as exc:
+            await send({
+                "type": "error",
+                "code": "tool_forbidden",
+                "message": str(exc),
+            })
+            await send({"type": "done"})
+            return state
+
+        except ToolUnavailableError as exc:
+            await send({
+                "type": "error",
+                "code": "tool_unavailable",
+                "message": str(exc),
+            })
+            await send({"type": "done"})
+            return state
 
         await send({"type": "done"})
 
