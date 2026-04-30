@@ -20,7 +20,8 @@ class AuthUser:
     sub: str
     email: str
     role: str
-    session_id: str  
+    session_id: str
+    token:str  
 
 
 def verify_token(token: str) -> AuthUser:
@@ -40,7 +41,7 @@ def verify_token(token: str) -> AuthUser:
         raise AuthError("token missing required fields: sub, role")
 
     session_id = _derive_session_id(sub)
-    return AuthUser(sub=sub, email=email, role=role, session_id=session_id)
+    return AuthUser(sub=sub, email=email, role=role, session_id=session_id,token=token)
 
 
 def _derive_session_id(sub: str) -> str:
