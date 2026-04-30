@@ -1,5 +1,5 @@
 from typing import Callable, Awaitable
-from ..state import SessionState
+from ..state import SessionState, save_state
 from ..auth import AuthUser
 from . import quote as quote_agent
 
@@ -51,6 +51,7 @@ async def handle(
 
     if step >= len(queue):
         state["current_node"] = "quote_agent"
+        save_state(user.session_id, state)
         await send({
             "type": "stream",
             "text": "Screening complete. Generating quote...\n",
@@ -62,7 +63,6 @@ async def handle(
                 "name": "quote_agent",
             })
         state = await quote_agent.handle(
-            user_text="",
             state=state,
             user=user,
             send=send,

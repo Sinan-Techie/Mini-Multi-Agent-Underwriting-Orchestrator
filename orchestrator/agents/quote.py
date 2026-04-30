@@ -3,6 +3,7 @@ from ..state import SessionState
 from ..auth import AuthUser
 from ..llm.groq_provider import GroqProvider
 import time
+import asyncio
 
 from ..tool_client import (
     get_providers,
@@ -14,7 +15,6 @@ from ..tool_client import (
 
 async def handle(
     *,
-    user_text: str,
     state: SessionState,
     user: AuthUser,
     send: Callable[[dict], Awaitable[None]],
@@ -112,6 +112,7 @@ async def handle(
     try:
         async for token in llm.stream(messages):
             await send({"type": "stream", "text": token})
+            await asyncio.sleep(0.03)
 
     except Exception as exc:
         await send({
