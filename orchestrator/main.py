@@ -49,7 +49,9 @@ async def _send_resume_prompt(websocket: WebSocket, state: SessionState) -> None
             await ws_send(websocket, {"type": "done"})
 
     elif node == "quote_agent":
-        if not state["quote"]:
+        print("RESUME PROMPT: quote_agent")
+        if state["quote"]:
+            print("RESUME PROMPT: quote_agent - sending prompt")
             await ws_send(websocket, {"type": "node", "name": node})
             await ws_send(websocket, {
                 "type": "stream",
@@ -126,6 +128,13 @@ async def ws_chat(websocket: WebSocket):
         "type": "node",
         "name": state["current_node"],
     })
+
+    if state["current_node"] == "eligibility_agent" and state["last_user_msg"] =="" :
+        await ws_send(websocket, {
+            "type": "stream",
+            "text": "Welcome! Please provide your age and region (UAE, KSA, IND).\nExample: 30 IND\n",
+        })
+        await ws_send(websocket, {"type": "done"})
 
     if is_resume:
         await ws_send(websocket, {

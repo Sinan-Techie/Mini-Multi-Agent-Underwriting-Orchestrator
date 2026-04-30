@@ -1,8 +1,7 @@
 from typing import Callable, Awaitable
 from ..state import SessionState
 from ..auth import AuthUser
-
-
+from . import quote as quote_agent
 
 # QUESTIONS (SOP aligned)
 
@@ -16,7 +15,7 @@ QUESTIONS = {
 
 # QUEUE BUILDER
 
-def build_initial_queue(region: str) -> list[str]:
+def build_initial_queue() -> list[str]:
     return [
         "tobacco",
         "preexisting",
@@ -31,15 +30,15 @@ async def handle(
     state: SessionState,
     user: AuthUser,
     send: Callable[[dict], Awaitable[None]],
+    trace_id: str,
 ):
     answers = state["screening_answers"]
-
 
     # INIT
 
     if not state["screening_queue"]:
         region = state["eligibility"]["region"]
-        state["screening_queue"] = build_initial_queue(region)
+        state["screening_queue"] = build_initial_queue()
         state["screening_step"] = 0
         state["awaiting_answer"] = False
         state["current_question"] = None
@@ -54,8 +53,21 @@ async def handle(
         state["current_node"] = "quote_agent"
         await send({
             "type": "stream",
-            "text": "Screening complete. Moving to quote.\n",
+            "text": "Screening complete. Generating quote...\n",
         })
+        await send({"type": "done"})
+
+        await send({
+                "type": "node",
+                "name": "quote_agent",
+            })
+        state = await quote_agent.handle(
+            user_text="",
+            state=state,
+            user=user,
+            send=send,
+            trace_id=trace_id,  
+        )
         return state
 
 
@@ -115,7 +127,7 @@ async def handle(
         except ValueError:
             await send({
                 "type": "stream",
-                "text": "Enter a number.\n"
+                "text": "On average, how many hours per week do you exercise? Enter a number in hours (for example: 0, 1.5, 3).\n"
             })
             return state
 
@@ -127,5 +139,6 @@ async def handle(
         user_text="",
         state=state,
         user=user,
-        send=send
+        send=send,
+        trace_id=trace_id, 
     )

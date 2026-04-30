@@ -3,7 +3,7 @@
 from typing import Callable, Awaitable
 from ..state import SessionState
 from ..auth import AuthUser
-
+from . import screening as screening_agent
 
 VALID_REGIONS = {"UAE", "KSA", "IND"}
 
@@ -33,6 +33,7 @@ async def handle(
     state: SessionState,
     user: AuthUser,
     send: Callable[[dict], Awaitable[None]],
+    trace_id: str,
 ):
     """
     EligibilityAgent:
@@ -83,5 +84,17 @@ async def handle(
         "type": "stream",
         "text": f"Got it. Age: {age}, Region: {region}. Moving to health screening.\n",
     })
+
+    await send({
+            "type": "node",
+            "name": "health_screening_agent",
+        })
+    state = await screening_agent.handle(
+        user_text="",
+        state=state,
+        user=user,
+        send=send,
+        trace_id=trace_id,  
+    )    
 
     return state

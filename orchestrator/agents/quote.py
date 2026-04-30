@@ -30,7 +30,6 @@ async def handle(
 
     llm = GroqProvider()
 
-
     if state["quote"]:
         await send({
             "type": "stream",
