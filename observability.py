@@ -1,20 +1,30 @@
 """Structured JSON trace logger.
 
-Every node entry/exit and tool call emits one line to stdout:
-    {"trace_id":"...","session_id":"...","node":"...","event":"enter","latency_ms":12,"ts":"..."}
+Every node entry/exit and tool call emits one line to stdout AND is
+appended to traces/{session_id}.jsonl for later retrieval via B5.
 
-trace_id is generated once per user turn and passed through all calls.
+trace_id is generated once per user turn and propagates through all calls.
 """
 
 import json
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
+
+from config import TRACES_DIR
 
 
 def new_trace_id() -> str:
     """Generate a unique trace ID for a single user turn."""
     return uuid.uuid4().hex[:12]
+
+
+def _trace_path(session_id: str) -> Path:
+    """Return the .jsonl file path for a session."""
+    d = Path(TRACES_DIR)
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{session_id}.jsonl"
 
 
 def log(
@@ -26,7 +36,7 @@ def log(
     latency_ms: int = 0,
     extra: dict | None = None,
 ) -> None:
-    """Emit one JSON trace line to stdout."""
+    """Emit one JSON trace line to stdout and persist it to the session trace file."""
     record = {
         "trace_id": trace_id,
         "session_id": session_id,
@@ -37,7 +47,20 @@ def log(
     }
     if extra:
         record.update(extra)
-    print(json.dumps(record), flush=True)
+
+    line = json.dumps(record)
+
+    # 1. stdout (existing behaviour — keeps logs visible in terminal)
+    print(line, flush=True)
+
+    # 2. Persist to traces/{session_id}.jsonl
+    # append mode is safe: orchestrator is the single writer per session.
+    try:
+        with _trace_path(session_id).open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError as exc:
+        # Never let a trace write failure crash the orchestrator.
+        print(json.dumps({"event": "trace_write_error", "error": str(exc)}), flush=True)
 
 
 class NodeTimer:
