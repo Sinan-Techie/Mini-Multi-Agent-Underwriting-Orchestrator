@@ -2,7 +2,7 @@ from typing import Callable, Awaitable
 from ..state import SessionState
 from ..auth import AuthUser
 from ..llm.groq_provider import GroqProvider
-
+import time
 
 from ..tool_client import (
     get_providers,
@@ -49,6 +49,8 @@ async def handle(
             session_id=state["session_id"],
         )
 
+        start = time.time()
+
         # 2. Get pricing in parallel
         prices = await get_all_pricing_parallel(
             providers=providers,
@@ -58,6 +60,8 @@ async def handle(
             trace_id=trace_id,
             session_id=state["session_id"],
         )
+
+        print("Elapsed:", time.time() - start)
 
     except ToolForbiddenError as exc:
         raise exc  # handled in orchestrator
