@@ -3,12 +3,10 @@ from ..state import SessionState, save_state
 from ..auth import AuthUser
 from . import quote as quote_agent
 
-# QUESTIONS (SOP aligned)
-
 
 QUESTIONS = {
     "tobacco": "Do you currently use any form of tobacco? (yes/no)",
-    "preexisting": "Have you had diabetes, heart disease, cancer, or respiratory illness in last 5 years? (yes/no)",
+    "preexisting": "Have you had diabetes, heart disease, cancer, or respiratory illness? (yes/no)",
     "exercise": "How many hours per week do you exercise?",
 }
 
@@ -21,8 +19,6 @@ def build_initial_queue() -> list[str]:
         "preexisting",
         "exercise",
     ]
-
-# AGENT (FSM-BASED)
 
 async def handle(
     *,

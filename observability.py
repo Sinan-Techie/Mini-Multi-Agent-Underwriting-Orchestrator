@@ -32,7 +32,7 @@ def log(
     trace_id: str,
     session_id: str,
     node: str,
-    event: str,           # "enter" | "exit" | "tool_call" | "tool_result" | "error"
+    event: str,           
     latency_ms: int = 0,
     extra: dict | None = None,
 ) -> None:
@@ -50,16 +50,14 @@ def log(
 
     line = json.dumps(record)
 
-    # 1. stdout (existing behaviour — keeps logs visible in terminal)
+    # stdout (existing behaviour — keeps logs visible in terminal)
     print(line, flush=True)
 
-    # 2. Persist to traces/{session_id}.jsonl
-    # append mode is safe: orchestrator is the single writer per session.
+    # Persist to traces/{session_id}.jsonl
     try:
         with _trace_path(session_id).open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
     except OSError as exc:
-        # Never let a trace write failure crash the orchestrator.
         print(json.dumps({"event": "trace_write_error", "error": str(exc)}), flush=True)
 
 
@@ -91,4 +89,4 @@ class NodeTimer:
             event="exit" if exc_type is None else "error",
             latency_ms=elapsed_ms,
         )
-        return False  # never suppress exceptions
+        return False

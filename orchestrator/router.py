@@ -1,7 +1,4 @@
-"""Supervisor router — routes each user turn to the correct agent.
-
-Stub implementation — echoes user message, stays on current node.
-"""
+"""Supervisor router — routes each user turn to the correct agent."""
 
 from typing import Callable, Awaitable
 from .state import SessionState
@@ -20,13 +17,11 @@ async def handle_turn(
 ) -> SessionState:
     """
     Route the user's message to the appropriate agent based on current_node.
-    Returns the (possibly mutated) state after the agent handles the turn.
     """
     node = state["current_node"]
     state["last_user_msg"] = user_text
 
     with NodeTimer(trace_id=trace_id, session_id=state["session_id"], node=node):
-        # await send({"type": "node", "name": node})
         try:
                 
             # Routing
@@ -75,12 +70,14 @@ async def handle_turn(
                     "type": "stream",
                     "text": f"[STUB] {node} not implemented yet.\n",
                 })
+
         except ToolForbiddenError as exc:
             await send({
                 "type": "error",
                 "code": "tool_forbidden",
                 "message": str(exc),
             })
+
             await send({"type": "done"})
             return state
 
@@ -90,6 +87,7 @@ async def handle_turn(
                 "code": "tool_unavailable",
                 "message": str(exc),
             })
+            
             await send({"type": "done"})
             return state
 
