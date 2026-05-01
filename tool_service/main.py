@@ -1,10 +1,10 @@
 """Tool service — stateless FastAPI app on port 8001.
 
 Endpoints:
-  GET /health                                           — health probe (no auth)
-  GET /tools/providers                                  — list providers
-  GET /tools/pricing?provider=&age=&region=             — mock price (agent + admin)
-  GET /traces?session_id=...                            — session trace log (admin only)
+  GET /health                                           
+  GET /tools/providers                                  
+  GET /tools/pricing?provider=&age=&region=             
+  GET /traces?session_id=...                           
         optional filters: node, event, trace_id, since, until
 
 RBAC is enforced HERE via JWT forwarded in Authorization: Bearer <token>.
@@ -35,19 +35,17 @@ app.add_middleware(
 )
 
 
-# ---------------------------------------------------------------------------
+
 # Health
-# ---------------------------------------------------------------------------
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "tool_service"}
 
 
-# ---------------------------------------------------------------------------
+
 # GET /tools/providers
 # Allowed: applicant, agent, admin
-# ---------------------------------------------------------------------------
 
 @app.get("/tools/providers")
 async def get_providers(
@@ -57,10 +55,9 @@ async def get_providers(
     return {"providers": PROVIDERS}
 
 
-# ---------------------------------------------------------------------------
+
 # GET /tools/pricing
 # Allowed: agent, admin   (applicant → 403)
-# ---------------------------------------------------------------------------
 
 @app.get("/tools/pricing")
 async def get_pricing(
@@ -90,9 +87,8 @@ async def get_pricing(
     }
 
 
-# ---------------------------------------------------------------------------
+
 # Trace helpers
-# ---------------------------------------------------------------------------
 
 def _parse_ts(ts_str: str) -> datetime:
     """Parse an ISO timestamp string into a timezone-aware datetime."""
@@ -158,10 +154,9 @@ def _build_summary(records: list[dict]) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
+
 # GET /traces
 # Allowed: admin only
-# ---------------------------------------------------------------------------
 
 @app.get("/traces")
 async def get_traces(
@@ -175,19 +170,6 @@ async def get_traces(
 ):
     """
     Return trace events for a session with optional filtering.
-
-    All filter params are optional and combinable:
-      - node       : exact match on the 'node' field
-      - event      : exact match on the 'event' field
-      - trace_id   : isolate one user turn end-to-end
-      - since/until: time-bound the results (ISO 8601)
-
-    Response includes:
-      - summary         : at-a-glance stats over the FULL session (unfiltered)
-      - traces          : the filtered events
-      - total_count     : total events in the session file
-      - filtered_count  : events returned after applying filters
-      - filters_applied : echo back which filters were active
     """
     trace_file = Path(TRACES_DIR) / f"{session_id}.jsonl"
 
@@ -200,7 +182,6 @@ async def get_traces(
             ),
         )
 
-    # Parse timestamp filters early — fail fast on bad input before reading file
     since_dt = _validate_iso(since, "since") if since else None
     until_dt = _validate_iso(until, "until") if until else None
 
@@ -220,7 +201,6 @@ async def get_traces(
             try:
                 all_records.append(json.loads(raw))
             except json.JSONDecodeError:
-                # Surface malformed lines without crashing the endpoint
                 all_records.append({
                     "parse_error": True,
                     "line": lineno,

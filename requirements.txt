@@ -1,12 +1,11 @@
+# Web framework
 fastapi==0.111.0
 uvicorn[standard]==0.30.1
 
+# Auth & config
 PyJWT==2.8.0
 python-dotenv==1.0.1
 
-# Optional but recommended for typing/runtime consistency
-pydantic==2.7.4
-
+# HTTP client & LLM provider
 httpx==0.27.0
-
 groq==0.11.0

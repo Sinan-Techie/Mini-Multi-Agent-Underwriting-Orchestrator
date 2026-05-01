@@ -2,14 +2,15 @@ from typing import Callable, Awaitable
 from ..state import SessionState
 from ..auth import AuthUser
 from ..llm.groq_provider import GroqProvider
+from observability import log
 import time
-import asyncio
+# import asyncio
+
+from fastapi import WebSocketDisconnect
 
 from ..tool_client import (
     get_providers,
-    get_all_pricing_parallel,
-    ToolForbiddenError,
-    ToolUnavailableError,
+    get_all_pricing_parallel
 )
 
 
@@ -22,72 +23,81 @@ async def handle(
 ):
     """
     QuoteAgent:
-    - fetch providers
-    - fetch pricing in parallel
+    - fetch providers and pricing (skipped if prices already in state)
     - pick cheapest
-    - stream recommendation
+    - stream recommendation, accumulating full text into state
     """
 
     llm = GroqProvider()
-
-    if state["quote"]:
-        await send({
-            "type": "stream",
-            "text": "Quote already generated.\n",
-        })
-        return state
-
     age = state["eligibility"]["age"]
     region = state["eligibility"]["region"]
 
-    try:
-        # 1. Get providers
+    # IF already completed — replay saved recommendation.
+    if state.get("quote") and state.get("quote_streamed"):
+        await send({
+            "type": "stream",
+            "text": "Your quote has already been generated. Here is your recommendation:\n\n",
+        })
+        await send({
+            "type": "stream",
+            "text": state.get("quote_recommendation", ""),
+        })
+        return state
+
+    # Prices already fetched but stream was interrupted — regenerate quote
+    if state.get("quote"):
+        prices = state["quote"]["all_prices"]
+
+    else:
+
         providers = await get_providers(
-            jwt_token=user.token,  
+            jwt_token=user.token,
             trace_id=trace_id,
             session_id=state["session_id"],
         )
 
         start = time.time()
 
-        # 2. Get pricing in parallel
         prices = await get_all_pricing_parallel(
             providers=providers,
             age=age,
             region=region,
-            jwt_token=user.token,  
+            jwt_token=user.token,
             trace_id=trace_id,
             session_id=state["session_id"],
         )
 
-        print("Elapsed:", time.time() - start)
+        elapsed_ms = int((time.time() - start) * 1000)
+        log(
+            trace_id=trace_id,
+            session_id=state["session_id"],
+            node="quote_agent",
+            event="tool_call",
+            latency_ms=elapsed_ms,
+            extra={"detail": "parallel pricing fetch complete"},
+        )
 
-    except ToolForbiddenError as exc:
-        raise exc  # handled in orchestrator
+        if not prices:
+            await send({
+                "type": "error",
+                "code": "tool_unavailable",
+                "message": "No pricing data available.",
+            })
+            return state
 
-    except ToolUnavailableError as exc:
-        raise exc
+        best_provider = min(prices, key=prices.get)
+        best_price = prices[best_provider]
 
-    if not prices:
-        await send({
-            "type": "error",
-            "code": "tool_unavailable",
-            "message": "No pricing data available.",
-        })
-        return state
+        state["quote"] = {
+            "provider": best_provider,
+            "price": best_price,
+            "all_prices": prices,
+        }
+        state["quote_streamed"] = False
+        state["quote_recommendation"] = ""
 
-    # 3. Pick cheapest
-    best_provider = min(prices, key=prices.get)
-    best_price = prices[best_provider]
-
-    # Save to state
-    state["quote"] = {
-        "provider": best_provider,
-        "price": best_price,
-        "all_prices": prices,
-    }
-
-    # 4. Stream response (chunked)
+    best_provider = state["quote"]["provider"]
+    best_price = state["quote"]["price"]
 
     messages = [
         {
@@ -109,20 +119,27 @@ async def handle(
         },
     ]
 
+    # Stream response — accumulate tokens so we can replay on reconnect.
+    accumulated = ""
+
     try:
         async for token in llm.stream(messages):
+            accumulated += token
             await send({"type": "stream", "text": token})
-            await asyncio.sleep(0.03)
+            # await asyncio.sleep(0.03)  # Use if you want slower streaming for testing
+
+    except WebSocketDisconnect:
+        raise
 
     except Exception as exc:
-        await send({
-            "type": "error",
-            "code": "llm_failed",
-            "message": str(exc),
-        })
-        fallback = (
-            f"Recommended: {best_provider} at ${best_price}/year.\n"
-        )
+        # LLM provider error — send fallback.
+        await send({"type": "error", "code": "llm_failed", "message": str(exc)})
+        fallback = f"Recommended: {best_provider} at ${best_price}/year.\n"
         await send({"type": "stream", "text": fallback})
+        accumulated = fallback
+
+    # Streaming done — mark complete and persist the full text.
+    state["quote_recommendation"] = accumulated
+    state["quote_streamed"] = True
 
     return state

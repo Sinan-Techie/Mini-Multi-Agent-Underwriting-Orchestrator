@@ -1,12 +1,5 @@
 """HTTP client for the tool service.
-
 All orchestrator to tool service communication goes through this module.
-
-Error handling:
-    403  → raises ToolForbiddenError
-    5xx  → raises ToolUnavailableError
-    network error → raises ToolUnavailableError
-
 The JWT is forwarded on every call so the tool service can enforce RBAC.
 """
 
@@ -159,10 +152,7 @@ async def get_all_pricing_parallel(
 ) -> dict[str, float]:
     """
     Fetch pricing from ALL providers in parallel using asyncio.gather.
-
     Returns: {provider_name: annual_premium_usd}
-    Providers that return 403 or 5xx are excluded from results (but logged).
-    If ALL providers fail, raises the last exception.
     """
     tasks = [
         get_pricing(
@@ -176,7 +166,6 @@ async def get_all_pricing_parallel(
         for p in providers
     ]
 
-    # return_exceptions=True so one failure doesn't cancel the others
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     prices: dict[str, float] = {}
@@ -196,7 +185,6 @@ async def get_all_pricing_parallel(
             prices[provider] = result["annual_premium_usd"]
 
     if not prices:
-        # Every provider failed — surface the last error
-        raise last_exc  # type: ignore[misc]
+        raise last_exc
 
     return prices
