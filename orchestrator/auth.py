@@ -27,7 +27,9 @@ class AuthUser:
 def verify_token(token: str) -> AuthUser:
     """Decode and validate a JWT. Raises AuthError on any failure."""
     try:
+        print("decoding token...")
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        print("token decoded successfully:", payload)
     except jwt.ExpiredSignatureError:
         raise AuthError("token has expired")
     except jwt.InvalidTokenError as exc:

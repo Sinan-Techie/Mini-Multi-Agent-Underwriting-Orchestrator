@@ -9,3 +9,8 @@ python-dotenv==1.0.1
 # HTTP client & LLM provider
 httpx==0.27.0
 groq==0.11.0
+
+# LangGraph + checkpointer
+langgraph>=0.2.0
+langgraph-checkpoint-sqlite>=1.0.0   # AsyncSqliteSaver
+langchain-core>=0.2.0                # RunnableConfig

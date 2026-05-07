@@ -5,6 +5,8 @@ __pycache__/
 *.pyc
 chroma_data/
 state.db
+state.db-shm
+state.db-wal
 state.json
 traces.log
 .DS_Store

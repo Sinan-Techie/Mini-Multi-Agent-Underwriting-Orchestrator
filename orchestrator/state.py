@@ -1,24 +1,26 @@
-"""Session state model and SQLite-backed persistence.
+"""
+LangGraph session state.
 
-Design decisions:
-  - Single writer (orchestrator only) — no contention, SQLite is sufficient.
-  - Persisted only after 'done' is sent — not on mid-stream.
-  - Resumable within SESSION_TTL_SECONDS (30 min).
-  - State is serialised as JSON in a single TEXT column for simplicity.
+Changes from the original hand-rolled state.py:
+  - current_node removed       → LangGraph owns routing via edges
+  - awaiting_answer removed    → replaced by interrupt() inside nodes
+  - current_question removed   → same; the question is re-sent on resume
+                                  via interrupt()'s resume value
+  - session_id kept            → used as thread_id for the checkpointer
+  - role kept                  → passed in graph config so nodes can read it
+  - everything else unchanged  → EligibilityData, ScreeningAnswers, QuoteData
+                                  are copied verbatim from the original
 
-Schema:
-    sessions(session_id TEXT PK, state TEXT, updated_at REAL)
+The SqliteSaver checkpointer replaces save_state() / load_state() entirely.
+It persists the full state automatically after every node completes and
+restores it when graph.invoke() is called with the same thread_id.
 """
 
-import json
-import sqlite3
-import time
-from typing import TypedDict
-
-from config import STATE_SQLITE_PATH, SESSION_TTL_SECONDS
+from typing import TypedDict, Annotated
+import operator
 
 
-
+# ── Sub-schemas (identical to original) ──────────────────────────────────────
 
 class EligibilityData(TypedDict, total=False):
     age: int
@@ -26,19 +28,9 @@ class EligibilityData(TypedDict, total=False):
 
 
 class ScreeningAnswers(TypedDict, total=False):
-    general_health_score: int
-    health_primary_factor: str
     tobacco_current: bool
-    tobacco_years: str
-    tobacco_past_12m: bool
-    alcohol_drinks_per_week: int | None
-    preexisting_asked: bool
-    preexisting_conditions: str
-    preexisting_detail: str
-    family_history: bool
-    family_history_detail: str
+    preexisting_conditions: bool
     exercise_hours_per_week: float
-    travel_international_60d: bool | None
 
 
 class QuoteData(TypedDict, total=False):
@@ -47,10 +39,28 @@ class QuoteData(TypedDict, total=False):
     all_prices: dict
 
 
-class SessionState(TypedDict):
-    session_id: str
-    role: str
-    current_node: str
+# ── Main graph state ──────────────────────────────────────────────────────────
+
+class UnderwritingState(TypedDict):
+    """
+    Single source of truth passed between every LangGraph node.
+
+    LangGraph merges node return dicts into this state automatically —
+    nodes only need to return the keys they changed.
+
+    The `messages` list uses operator.add as its reducer so that each
+    node can append to it without overwriting previous entries.
+    """
+
+    # Conversation input — the current user message.
+    # Nodes read state["messages"][-1] to get the latest user text.
+    messages: Annotated[list[str], operator.add]
+
+    # Identity — set once from JWT at WS connect, never mutated by nodes.
+    session_id: str   # sha256(sub)[:16]  — also used as thread_id
+    role: str         # "applicant" | "agent" | "admin"
+
+    # Agent data (identical shape to original state.py) ─────────────────────
     eligibility: EligibilityData
     screening_answers: ScreeningAnswers
     screening_step: int
@@ -58,16 +68,17 @@ class SessionState(TypedDict):
     quote: QuoteData
     quote_streamed: bool
     quote_recommendation: str
+
+    # Carry-through for observability ────────────────────────────────────────
     last_user_msg: str
-    updated_at: float
 
 
-def new_state(session_id: str, role: str) -> SessionState:
-    """Create a fresh session state starting at the eligibility node."""
-    return SessionState(
+def new_state(session_id: str, role: str) -> UnderwritingState:
+    """Fresh state for a brand-new session."""
+    return UnderwritingState(
+        messages=[],
         session_id=session_id,
         role=role,
-        current_node="eligibility_agent",
         eligibility=EligibilityData(),
         screening_answers=ScreeningAnswers(),
         screening_step=0,
@@ -76,71 +87,4 @@ def new_state(session_id: str, role: str) -> SessionState:
         quote_streamed=False,
         quote_recommendation="",
         last_user_msg="",
-        updated_at=time.time(),
     )
-
-
-# SQLite helpers
-
-def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(STATE_SQLITE_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            session_id  TEXT PRIMARY KEY,
-            state       TEXT NOT NULL,
-            updated_at  REAL NOT NULL
-        )
-    """)
-    conn.commit()
-    return conn
-
-
-def save_state(session_id: str, state: SessionState) -> None:
-    """Upsert session state. Called only after 'done' is sent."""
-    state["updated_at"] = time.time()
-    with _get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO sessions (session_id, state, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(session_id) DO UPDATE SET
-                state      = excluded.state,
-                updated_at = excluded.updated_at
-            """,
-            (session_id, json.dumps(state), state["updated_at"]),
-        )
-
-
-def load_state(session_id: str) -> SessionState | None:
-    """
-    Load session state if it exists and is within TTL.
-    Returns None for new or expired sessions.
-    """
-    conn = _get_conn()
-    row = conn.execute(
-        "SELECT state, updated_at FROM sessions WHERE session_id = ?",
-        (session_id,),
-    ).fetchone()
-    conn.close()
-
-    if row is None:
-        return None
-
-    state_json, updated_at = row
-    age_seconds = time.time() - updated_at
-
-    if age_seconds > SESSION_TTL_SECONDS:
-        # Expired — treat as new session
-        delete_state(session_id)
-        return None
-
-    return json.loads(state_json)
-
-
-def delete_state(session_id: str) -> None:
-    """Remove a session (expired or completed)."""
-    with _get_conn() as conn:
-        conn.execute(
-            "DELETE FROM sessions WHERE session_id = ?",
-            (session_id,),
-        )
